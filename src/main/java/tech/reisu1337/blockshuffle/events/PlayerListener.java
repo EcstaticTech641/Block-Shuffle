@@ -19,6 +19,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.RenderType;
+import org.bukkit.scoreboard.Scoreboard;
 import tech.reisu1337.blockshuffle.BlockShuffle;
 
 import java.time.Duration;
@@ -52,6 +56,8 @@ public class PlayerListener implements Listener {
     private final Set<UUID> usersInGame = Sets.newConcurrentHashSet();
     /** Accumulated points per player across all rounds. */
     private final Map<UUID, Integer> scores = new ConcurrentHashMap<>();
+    /** Total blocks found per player across all rounds. */
+    private final Map<UUID, Integer> blocksFound = new ConcurrentHashMap<>();
 
     // ── Misc state ───────────────────────────────────────────────────────────
     private final Random random = new Random();
@@ -59,9 +65,11 @@ public class PlayerListener implements Listener {
     private final YamlConfiguration settings;
 
     private List<Material> materials;
-    private int bossBarTaskId    = -1;
-    private int roundEndTaskId   = -1;
+    private int bossBarTaskId      = -1;
+    private int roundEndTaskId     = -1;
+    private int actionBarTaskId    = -1;
     private BossBar bossBar;
+    private Scoreboard scoreboard;
     private long roundStartTime;
     private String materialPath;
     /** World the game is being played in — captured at game start for the RGA conclude command. */
@@ -89,21 +97,31 @@ public class PlayerListener implements Listener {
             UUID uuid = player.getUniqueId();
             this.usersInGame.add(uuid);
             this.scores.put(uuid, 0);
-            // Capture the world from the first player we see
+            this.blocksFound.put(uuid, 0);
             if (this.gameWorld == null) {
                 this.gameWorld = player.getWorld();
             }
         }
 
+        this.scoreboard = createSidebar();
         this.bossBar = createBossBar();
         startCountdown();
     }
 
     public void resetGame() {
+        // Remove the custom scoreboard from all players before clearing state
+        for (UUID uuid : this.usersInGame) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) {
+                p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+            }
+        }
+
         this.userMaterialMap.clear();
         this.usersInGame.clear();
         this.completedUsers.clear();
         this.scores.clear();
+        this.blocksFound.clear();
         this.countdownActive = false;
         this.currentRoundTicks = ROUND_TICKS_START;
         this.plugin.setInProgress(false);
@@ -111,9 +129,12 @@ public class PlayerListener implements Listener {
         if (this.bossBar != null) this.bossBar.removeAll();
         cancelTask(roundEndTaskId);
         cancelTask(bossBarTaskId);
-        roundEndTaskId = -1;
-        bossBarTaskId  = -1;
-        this.gameWorld = null;
+        cancelTask(actionBarTaskId);
+        roundEndTaskId  = -1;
+        bossBarTaskId   = -1;
+        actionBarTaskId = -1;
+        this.gameWorld  = null;
+        this.scoreboard = null;
     }
 
     public void setMaterialPath(String materialPath) {
@@ -128,7 +149,6 @@ public class PlayerListener implements Listener {
 
         broadcast(Component.text("Game starting in " + COUNTDOWN_SECS + " seconds! Get ready!", NamedTextColor.YELLOW));
 
-        // Schedule one task per countdown tick
         for (int i = COUNTDOWN_SECS; i >= 1; i--) {
             final int secondsLeft = i;
             final long delay = (long)(COUNTDOWN_SECS - secondsLeft) * 20L;
@@ -136,7 +156,6 @@ public class PlayerListener implements Listener {
                 for (UUID uuid : this.usersInGame) {
                     Player p = Bukkit.getPlayer(uuid);
                     if (p == null) continue;
-                    // Show countdown number as a title
                     p.showTitle(Title.title(
                         Component.text(secondsLeft, NamedTextColor.YELLOW, TextDecoration.BOLD),
                         Component.empty(),
@@ -147,7 +166,6 @@ public class PlayerListener implements Listener {
             }, delay);
         }
 
-        // After countdown finishes, kick off the first round
         Bukkit.getScheduler().scheduleSyncDelayedTask(this.plugin, () -> {
             this.countdownActive = false;
             for (UUID uuid : this.usersInGame) {
@@ -169,16 +187,8 @@ public class PlayerListener implements Listener {
     private void nextRound() {
         cancelTask(roundEndTaskId);
 
-        // ── Score the previous round (skip on the very first call) ──────────
-        // completedUsers is empty at game start, so this block is effectively
-        // a no-op for round 1 — scoring only runs from round 2 onward after
-        // results have been evaluated in onRoundEnd().
-        // (Scoring is actually applied in onRoundEnd; nextRound just sets up
-        //  the new round after scoring is done.)
-
         if (checkForWinner()) return;
 
-        // ── Assign blocks for the new round ─────────────────────────────────
         this.completedUsers.clear();
         this.userMaterialMap.clear();
         this.bossBar.setVisible(true);
@@ -199,7 +209,8 @@ public class PlayerListener implements Listener {
             );
         }
 
-        broadcastScoreboard();
+        updateSidebar();
+        startActionBarTask();
 
         this.bossBarTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(
                 this.plugin, this::updateBossBar, 0L, 20L);
@@ -207,23 +218,26 @@ public class PlayerListener implements Listener {
                 this.plugin, this::onRoundEnd, this.currentRoundTicks);
     }
 
-    /**
-     * Called when the timer expires. Scores the round, then hands off to nextRound().
-     */
     private void onRoundEnd() {
         cancelTask(bossBarTaskId);
-        bossBarTaskId = -1;
+        cancelTask(actionBarTaskId);
+        bossBarTaskId   = -1;
+        actionBarTaskId = -1;
 
-        int totalPlayers  = this.usersInGame.size();
-        int successCount  = this.completedUsers.size();
-        int failCount     = totalPlayers - successCount;
+        int totalPlayers = this.usersInGame.size();
+        int successCount = this.completedUsers.size();
+        int failCount    = totalPlayers - successCount;
 
         if (successCount == 0 || failCount == 0) {
-            // Nobody gets a point — either everyone succeeded or everyone failed
             if (successCount == 0) {
+                // Everyone failed — play fail sound for all
+                for (UUID uuid : this.usersInGame) {
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p != null) p.playSound(p.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+                }
                 broadcast(buildMessage("Nobody found their block — no points awarded!", NamedTextColor.YELLOW));
             } else {
-                // Everyone succeeded — shrink the timer for next round
+                // Everyone succeeded — shrink the timer
                 int newTicks = Math.max(ROUND_TICKS_MIN, this.currentRoundTicks - ROUND_TICKS_SHRINK);
                 if (newTicks < this.currentRoundTicks) {
                     this.currentRoundTicks = newTicks;
@@ -238,36 +252,34 @@ public class PlayerListener implements Listener {
                 }
             }
         } else {
-            // Award a point to each player who succeeded
+            // Mixed result — award points to successful players, fail sound to others
             for (UUID uuid : this.completedUsers) {
                 this.scores.merge(uuid, 1, Integer::sum);
                 Player p = Bukkit.getPlayer(uuid);
                 if (p != null) {
+                    p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_ATTACK_SWEEP, 1f, 1f);
                     p.sendMessage(buildMessage("+1 point! (" + this.scores.get(uuid) + "/" + POINTS_TO_WIN + ")", NamedTextColor.GREEN));
                 }
             }
-            // Announce who failed
             StringJoiner failedNames = new StringJoiner(", ");
             for (UUID uuid : this.usersInGame) {
                 if (!this.completedUsers.contains(uuid)) {
                     Player p = Bukkit.getPlayer(uuid);
-                    if (p != null) failedNames.add(p.getName());
+                    if (p != null) {
+                        p.playSound(p.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+                        failedNames.add(p.getName());
+                    }
                 }
             }
             broadcast(buildMessage("Failed: " + failedNames + " — successful players earn a point!", NamedTextColor.RED));
         }
 
-        // Hand off to next round (which will check for a winner first)
+        updateSidebar();
         nextRound();
     }
 
     // ── Winner detection ─────────────────────────────────────────────────────
 
-    /**
-     * Returns true (and ends the game) if a winner can be determined.
-     * Handles ties: if two or more players are tied at ≥ POINTS_TO_WIN,
-     * the game continues until one of them pulls ahead.
-     */
     private boolean checkForWinner() {
         int maxScore = this.scores.values().stream().mapToInt(Integer::intValue).max().orElse(0);
         if (maxScore < POINTS_TO_WIN) return false;
@@ -278,7 +290,6 @@ public class PlayerListener implements Listener {
                 .collect(Collectors.toList());
 
         if (leaders.size() == 1) {
-            // Clear winner
             Player winner = Bukkit.getPlayer(leaders.get(0));
             String name = winner != null ? winner.getName() : "Unknown";
             broadcast(buildMessage("🏆 " + name + " wins with " + maxScore + " point(s)! 🏆", NamedTextColor.GOLD));
@@ -287,7 +298,6 @@ public class PlayerListener implements Listener {
             return true;
         }
 
-        // Tie at ≥ POINTS_TO_WIN — continue until one breaks ahead
         StringJoiner tied = new StringJoiner(", ");
         for (UUID uuid : leaders) {
             Player p = Bukkit.getPlayer(uuid);
@@ -297,21 +307,115 @@ public class PlayerListener implements Listener {
         return false;
     }
 
-    // ── Scoreboard broadcast ─────────────────────────────────────────────────
+    // ── Sidebar scoreboard ────────────────────────────────────────────────────
 
-    private void broadcastScoreboard() {
-        Component header = Component.text("─── Scores ───", NamedTextColor.DARK_AQUA, TextDecoration.BOLD);
-        broadcast(header);
+    /**
+     * Creates a fresh scoreboard with a sidebar objective and assigns it to
+     * every player in the game.
+     */
+    private Scoreboard createSidebar() {
+        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
+        Objective obj = board.registerNewObjective(
+                "blockshuffle", "dummy",
+                Component.text("◆ BlockShuffle ◆", NamedTextColor.GOLD, TextDecoration.BOLD));
+        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-        this.scores.entrySet().stream()
-                .sorted(Map.Entry.<UUID, Integer>comparingByValue(Comparator.reverseOrder()))
-                .forEach(entry -> {
-                    Player p = Bukkit.getPlayer(entry.getKey());
-                    String name = p != null ? p.getName() : "Unknown";
-                    broadcast(Component.text("  " + name + ": " + entry.getValue() + "/" + POINTS_TO_WIN, NamedTextColor.WHITE));
-                });
+        for (UUID uuid : this.usersInGame) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) p.setScoreboard(board);
+        }
+        return board;
+    }
 
-        broadcast(Component.text("──────────────", NamedTextColor.DARK_AQUA));
+    /**
+     * Rebuilds the sidebar lines to reflect current scores, blocks found, and
+     * the found/searching indicator for this round.
+     *
+     * Sidebar layout (top → bottom via descending score values):
+     *   [blank]
+     *   ✔ PlayerA  (found this round)
+     *    pts:2  found:5
+     *   ⧖ PlayerB  (still searching)
+     *    pts:1  found:3
+     *   [blank]
+     */
+    private void updateSidebar() {
+        if (this.scoreboard == null) return;
+
+        Objective obj = this.scoreboard.getObjective("blockshuffle");
+        if (obj == null) return;
+
+        // Clear existing entries
+        for (String entry : this.scoreboard.getEntries()) {
+            this.scoreboard.resetScores(entry);
+        }
+
+        // Sort players by score descending, then name for stability
+        List<UUID> sorted = this.usersInGame.stream()
+                .sorted(Comparator
+                        .comparingInt((UUID u) -> this.scores.getOrDefault(u, 0))
+                        .reversed()
+                        .thenComparing(u -> {
+                            Player p = Bukkit.getPlayer(u);
+                            return p != null ? p.getName() : "";
+                        }))
+                .collect(Collectors.toList());
+
+        // Each player occupies 2 lines; add blank padding at top and bottom.
+        // Scoreboard lines use unique strings as keys; score value = display order.
+        int lineCount = sorted.size() * 2 + 2; // 2 lines/player + top + bottom blank
+        int lineIndex = lineCount; // highest value = top of sidebar
+
+        // Top blank
+        obj.getScore(" ").setScore(lineIndex--);
+
+        for (UUID uuid : sorted) {
+            Player p = Bukkit.getPlayer(uuid);
+            String name = p != null ? p.getName() : "Unknown";
+            int pts = this.scores.getOrDefault(uuid, 0);
+            int found = this.blocksFound.getOrDefault(uuid, 0);
+            boolean foundThisRound = this.completedUsers.contains(uuid);
+            boolean stillSearching = this.userMaterialMap.containsKey(uuid);
+
+            String indicator = foundThisRound ? "§a✔ " : (stillSearching ? "§e⧖ " : "§7✘ ");
+            String nameLine  = indicator + "§f" + name;
+            String statsLine = "§7  pts:§b" + pts + " §7found:§d" + found;
+
+            // Guarantee unique entry strings (sidebar uses raw strings as keys)
+            obj.getScore(nameLine).setScore(lineIndex--);
+            obj.getScore(statsLine).setScore(lineIndex--);
+        }
+
+        // Bottom blank (must be different from top blank)
+        obj.getScore("  ").setScore(lineIndex);
+    }
+
+    // ── Action bar ────────────────────────────────────────────────────────────
+
+    /**
+     * Starts a repeating task that sends each player their current target block
+     * as an action bar message (above the hotbar) every second.
+     * Stops automatically when cancelled in onRoundEnd / resetGame.
+     */
+    private void startActionBarTask() {
+        cancelTask(actionBarTaskId);
+        actionBarTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(this.plugin, () -> {
+            for (UUID uuid : this.usersInGame) {
+                Player p = Bukkit.getPlayer(uuid);
+                if (p == null) continue;
+
+                Component bar;
+                if (this.completedUsers.contains(uuid)) {
+                    bar = Component.text("✔ Found! Waiting for round to end…", NamedTextColor.GREEN, TextDecoration.ITALIC);
+                } else {
+                    Material target = this.userMaterialMap.get(uuid);
+                    if (target == null) continue;
+                    bar = Component.text("Find: ", NamedTextColor.GRAY)
+                            .append(Component.text(formatMaterialName(target), NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD));
+                }
+                p.sendActionBar(bar);
+            }
+        }, 0L, 20L); // every second
     }
 
     // ── Boss bar ─────────────────────────────────────────────────────────────
@@ -350,11 +454,12 @@ public class PlayerListener implements Listener {
         if (this.userMaterialMap.get(uuid) == materialBelow) {
             this.userMaterialMap.remove(uuid);
             this.completedUsers.add(uuid);
+            this.blocksFound.merge(uuid, 1, Integer::sum);
 
+            player.playSound(player.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 1f, 1f);
             broadcast(buildMessage(player.getName() + " found their block!", NamedTextColor.GREEN));
+            updateSidebar();
 
-            // If every player has now been resolved (found or timed out), end
-            // the round immediately rather than waiting for the timer.
             if (this.userMaterialMap.isEmpty()) {
                 cancelTask(roundEndTaskId);
                 onRoundEnd();
@@ -371,6 +476,7 @@ public class PlayerListener implements Listener {
         this.userMaterialMap.remove(uuid);
         this.completedUsers.remove(uuid);
         this.scores.remove(uuid);
+        this.blocksFound.remove(uuid);
 
         if (this.usersInGame.isEmpty()) {
             concludeRGA();
@@ -378,7 +484,8 @@ public class PlayerListener implements Listener {
             return;
         }
 
-        // If the quitting player was the last one still looking, resolve now
+        updateSidebar();
+
         if (this.userMaterialMap.isEmpty() && !this.countdownActive) {
             cancelTask(roundEndTaskId);
             onRoundEnd();
