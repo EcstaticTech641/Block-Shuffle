@@ -31,7 +31,7 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 
 ## Changelog
 
-### v0.3
+### v0.2.1
 
 - Fixed bug that prevented sound effects for players finding their block and failing to find their block.
 - Fixed formatting issue that showed red placeholder numbers on each row of the scoreboard.
