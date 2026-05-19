@@ -23,6 +23,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.RenderType;
+import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import io.papermc.paper.scoreboard.numbers.NumberFormat;
 import tech.reisu1337.blockshuffle.BlockShuffle;
@@ -327,7 +328,6 @@ public class PlayerListener implements Listener {
         Objective obj = board.registerNewObjective(
                 "blockshuffle", "dummy",
                 Component.text("◆ BlockShuffle ◆", NamedTextColor.GOLD, TextDecoration.BOLD));
-        obj.setNumberFormat(NumberFormat.blank());
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         for (UUID uuid : this.usersInGame) {
@@ -377,7 +377,9 @@ public class PlayerListener implements Listener {
         int lineIndex = lineCount; // highest value = top of sidebar
 
         // Top blank
-        obj.getScore(" ").setScore(lineIndex--);
+        Score topBlank = obj.getScore(" ");
+        topBlank.setScore(lineIndex--);
+        topBlank.setNumberFormat(NumberFormat.blank());
 
         for (UUID uuid : sorted) {
             Player p = Bukkit.getPlayer(uuid);
@@ -391,13 +393,18 @@ public class PlayerListener implements Listener {
             String nameLine  = indicator + "§f" + name;
             String statsLine = "§7  pts:§b" + pts + " §7found:§d" + found;
 
-            // Guarantee unique entry strings (sidebar uses raw strings as keys)
-            obj.getScore(nameLine).setScore(lineIndex--);
-            obj.getScore(statsLine).setScore(lineIndex--);
+            Score nameScore  = obj.getScore(nameLine);
+            Score statsScore = obj.getScore(statsLine);
+            nameScore.setScore(lineIndex--);
+            nameScore.setNumberFormat(NumberFormat.blank());
+            statsScore.setScore(lineIndex--);
+            statsScore.setNumberFormat(NumberFormat.blank());
         }
 
         // Bottom blank (must be different from top blank)
-        obj.getScore("  ").setScore(lineIndex);
+        Score bottomBlank = obj.getScore("  ");
+        bottomBlank.setScore(lineIndex);
+        bottomBlank.setNumberFormat(NumberFormat.blank());
     }
 
     // ── Action bar ────────────────────────────────────────────────────────────
