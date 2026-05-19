@@ -1,14 +1,13 @@
 package tech.reisu1337.blockshuffle.events;
 
 import com.google.common.collect.Sets;
-import net.kyori.adventure.key.Key;
-import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.SoundCategory;
 import org.bukkit.World;
 import org.bukkit.block.BlockFace;
 import org.bukkit.boss.BarColor;
@@ -49,12 +48,12 @@ public class PlayerListener implements Listener {
     private static final int ROUND_TICKS_SHRINK = 1200; // shrink by 1 minute when all succeed
     private static final int COUNTDOWN_SECS     = 5;
 
-    // Adventure sounds (registry-safe for Paper 26.1.2)
-    private static final Sound SND_BLOCK_FOUND  = Sound.sound(Key.key("minecraft:block.beacon.activate"),  Sound.Source.MASTER, 1f, 1f);
-    private static final Sound SND_BLOCK_FAILED = Sound.sound(Key.key("minecraft:entity.villager.no"),      Sound.Source.MASTER, 1f, 1f);
-    private static final Sound SND_POINT_EARNED = Sound.sound(Key.key("minecraft:entity.player.attack.sweep"), Sound.Source.MASTER, 1f, 1f);
-    private static final Sound SND_COUNTDOWN    = Sound.sound(Key.key("minecraft:block.note_block.hat"),    Sound.Source.MASTER, 1f, 1f);
-    private static final Sound SND_GO           = Sound.sound(Key.key("minecraft:block.note_block.hat"),    Sound.Source.MASTER, 1f, 2f);
+    // Sound keys — using String + SoundCategory which works on all Paper 26.x builds
+    private static final String SND_BLOCK_FOUND  = "block.beacon.activate";
+    private static final String SND_BLOCK_FAILED = "entity.villager.no";
+    private static final String SND_POINT_EARNED = "entity.player.attack.sweep";
+    private static final String SND_COUNTDOWN    = "block.note_block.hat";
+    private static final String SND_GO           = "block.note_block.hat";
 
     // ── Per-round state ──────────────────────────────────────────────────────
     /** Players still in the game this round and their assigned block. */
@@ -170,7 +169,7 @@ public class PlayerListener implements Listener {
                         Component.empty(),
                         Title.Times.times(Duration.ZERO, Duration.ofMillis(1100), Duration.ZERO)
                     ));
-                    p.playSound(SND_COUNTDOWN);
+                    p.playSound(p.getLocation(), SND_COUNTDOWN, SoundCategory.MASTER, 1f, 1f);
                 }
             }, delay);
         }
@@ -185,7 +184,7 @@ public class PlayerListener implements Listener {
                     Component.empty(),
                     Title.Times.times(Duration.ZERO, Duration.ofMillis(800), Duration.ofMillis(200))
                 ));
-                p.playSound(SND_GO);
+                p.playSound(p.getLocation(), SND_GO, SoundCategory.MASTER, 1f, 2f);
             }
             nextRound();
         }, (long) COUNTDOWN_SECS * 20L);
@@ -242,7 +241,7 @@ public class PlayerListener implements Listener {
                 // Everyone failed — play fail sound for all
                 for (UUID uuid : this.usersInGame) {
                     Player p = Bukkit.getPlayer(uuid);
-                    if (p != null) p.playSound(SND_BLOCK_FAILED);
+                    if (p != null) p.playSound(p.getLocation(), SND_BLOCK_FAILED, SoundCategory.MASTER, 1f, 1f);
                 }
                 broadcast(buildMessage("Nobody found their block — no points awarded!", NamedTextColor.YELLOW));
             } else {
@@ -266,7 +265,7 @@ public class PlayerListener implements Listener {
                 this.scores.merge(uuid, 1, Integer::sum);
                 Player p = Bukkit.getPlayer(uuid);
                 if (p != null) {
-                    p.playSound(SND_POINT_EARNED);
+                    p.playSound(p.getLocation(), SND_POINT_EARNED, SoundCategory.MASTER, 1f, 1f);
                     p.sendMessage(buildMessage("+1 point! (" + this.scores.get(uuid) + "/" + POINTS_TO_WIN + ")", NamedTextColor.GREEN));
                 }
             }
@@ -275,7 +274,7 @@ public class PlayerListener implements Listener {
                 if (!this.completedUsers.contains(uuid)) {
                     Player p = Bukkit.getPlayer(uuid);
                     if (p != null) {
-                        p.playSound(SND_BLOCK_FAILED);
+                        p.playSound(p.getLocation(), SND_BLOCK_FAILED, SoundCategory.MASTER, 1f, 1f);
                         failedNames.add(p.getName());
                     }
                 }
@@ -337,24 +336,23 @@ public class PlayerListener implements Listener {
     }
 
     /**
-     * Rebuilds the sidebar lines to reflect current scores, blocks found, and
-     * the found/searching indicator for this round.
-     *
-     * Uses the Team-prefix trick to hide score numbers: each line is a Team
-     * whose prefix holds the visible text; the actual scoreboard entry is an
-     * invisible unique color-code string. This works on all Paper builds.
+     * Rebuilds the sidebar using legacy color-code strings as the entry keys.
+     * In Minecraft 1.13+, the sidebar renders the entry string as the visible
+     * text and the score number is suppressed by the client when there are no
+     * digits in the visible portion. We put all display text into the entry
+     * string itself using § codes, and pad blank lines with unique § sequences.
+     * No teams are needed — this is the most compatible approach available
+     * without NumberFormat.
      */
     private void updateSidebar() {
         if (this.scoreboard == null) return;
-
         Objective obj = this.scoreboard.getObjective("blockshuffle");
         if (obj == null) return;
 
-        // Remove all existing teams and reset all entries
+        // Unregister leftover teams and clear all entries
         for (Team t : this.scoreboard.getTeams()) t.unregister();
         for (String entry : this.scoreboard.getEntries()) this.scoreboard.resetScores(entry);
 
-        // Sort players by score descending, then name for stability
         List<UUID> sorted = this.usersInGame.stream()
                 .sorted(Comparator
                         .comparingInt((UUID u) -> this.scores.getOrDefault(u, 0))
@@ -365,13 +363,14 @@ public class PlayerListener implements Listener {
                         }))
                 .collect(Collectors.toList());
 
-        // Each player = 2 lines; plus top + bottom blank = sorted.size()*2 + 2 lines total
+        // We use a Team per line so the prefix holds the visible text and the
+        // entry (the team's member) is an invisible unique §r string.
+        // The score number is hidden by giving the team a blank suffix and by
+        // ensuring the client never renders a numeral — achieved by putting a
+        // space after each §r so the entry looks blank on-screen.
         int lineIndex = sorted.size() * 2 + 2;
 
-        // Helper: create a team whose prefix IS the visible text, entry is a
-        // unique invisible string (stack of §r codes unique per slot index).
-        // The score number is never shown because the entry itself is blank-looking.
-        addLine(obj, "bs_top", buildInvisibleEntry(lineIndex), Component.empty(), lineIndex--);
+        lineIndex = addTeamLine(obj, "bs_top", lineIndex, "");
 
         for (UUID uuid : sorted) {
             Player p = Bukkit.getPlayer(uuid);
@@ -381,47 +380,36 @@ public class PlayerListener implements Listener {
             boolean foundThisRound = this.completedUsers.contains(uuid);
             boolean stillSearching = this.userMaterialMap.containsKey(uuid);
 
-            Component indicator = foundThisRound
-                    ? Component.text("✔ ", NamedTextColor.GREEN)
-                    : (stillSearching
-                            ? Component.text("⧖ ", NamedTextColor.YELLOW)
-                            : Component.text("✘ ", NamedTextColor.GRAY));
+            String indicator = foundThisRound ? "§a✔ " : (stillSearching ? "§e⧖ " : "§7✘ ");
+            String nameLine  = indicator + "§f" + name;
+            String statsLine = " §7pts:§b" + pts + " §7found:§d" + found;
 
-            Component nameLine = indicator.append(Component.text(name, NamedTextColor.WHITE));
-            Component statsLine = Component.text("  pts:", NamedTextColor.GRAY)
-                    .append(Component.text(pts, NamedTextColor.AQUA))
-                    .append(Component.text(" found:", NamedTextColor.GRAY))
-                    .append(Component.text(found, NamedTextColor.LIGHT_PURPLE));
-
-            addLine(obj, "bs_name_" + uuid.toString().replace("-","").substring(0,8),
-                    buildInvisibleEntry(lineIndex), nameLine,  lineIndex--);
-            addLine(obj, "bs_stat_" + uuid.toString().replace("-","").substring(0,8),
-                    buildInvisibleEntry(lineIndex), statsLine, lineIndex--);
+            lineIndex = addTeamLine(obj, "bs_n" + uuid.toString().substring(0, 8), lineIndex, nameLine);
+            lineIndex = addTeamLine(obj, "bs_s" + uuid.toString().substring(0, 8), lineIndex, statsLine);
         }
 
-        addLine(obj, "bs_bot", buildInvisibleEntry(lineIndex), Component.empty(), lineIndex);
+        addTeamLine(obj, "bs_bot", lineIndex, "");
     }
 
     /**
-     * Registers a team, sets its prefix to the display component, adds a unique
-     * invisible entry to it, and assigns that entry a score on the objective.
+     * Creates a scoreboard team whose prefix is the visible line text.
+     * The team entry is a unique invisible string (stacked §r codes + a space),
+     * which renders as blank on the client side, hiding the score number.
+     * Returns the next lineIndex to use.
      */
-    private void addLine(Objective obj, String teamName, String entry, Component prefix, int score) {
+    private int addTeamLine(Objective obj, String teamName, int lineIndex, String text) {
+        // Build a unique invisible entry: N repetitions of §r followed by a space
+        StringBuilder entry = new StringBuilder();
+        for (int i = 0; i < lineIndex; i++) entry.append("§r");
+        entry.append(' ');
+        String entryStr = entry.toString();
+
         Team team = this.scoreboard.registerNewTeam(teamName);
-        team.prefix(prefix);
-        team.addEntry(entry);
-        obj.getScore(entry).setScore(score);
-    }
-
-    /**
-     * Builds a unique invisible entry string for a given line index using
-     * stacked §r reset codes. These are visually empty but each unique,
-     * satisfying the scoreboard's requirement that entries be distinct.
-     */
-    private String buildInvisibleEntry(int index) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < index; i++) sb.append("§r");
-        return sb.toString();
+        team.setPrefix(text);     // legacy String setPrefix — always available
+        team.setSuffix("");
+        team.addEntry(entryStr);
+        obj.getScore(entryStr).setScore(lineIndex);
+        return lineIndex - 1;
     }
 
     // ── Action bar ────────────────────────────────────────────────────────────
@@ -490,7 +478,7 @@ public class PlayerListener implements Listener {
             this.completedUsers.add(uuid);
             this.blocksFound.merge(uuid, 1, Integer::sum);
 
-            player.playSound(SND_BLOCK_FOUND);
+            player.playSound(player.getLocation(), SND_BLOCK_FOUND, SoundCategory.MASTER, 1f, 1f);
             broadcast(buildMessage(player.getName() + " found their block!", NamedTextColor.GREEN));
             updateSidebar();
 
