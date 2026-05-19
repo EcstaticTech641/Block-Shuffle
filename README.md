@@ -59,3 +59,7 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 - Fixed several `null` guard checks for offline players
 - Gradle wrapper updated from 7.1.1 → 8.13; Java toolchain set to 21
 - Repository switched from Spigot nexus to `repo.papermc.io`
+
+## Original Plugin
+
+https://github.com/OliverB21/BlockShuffle
