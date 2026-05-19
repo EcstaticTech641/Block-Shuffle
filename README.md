@@ -33,6 +33,10 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 
 ### V0.2.2
 
+- Changed sound that plays when player fails to find their block.
+- Fixed formatting issue that showed red placeholder numbers on each row of the scoreboard.
+- Fixed the RGA conclude command to be called when blockshuffle stop command is initiated by a player.
+
 ### v0.2.1
 
 - Fixed bug that prevented sound effects for players finding their block and failing to find their block.
