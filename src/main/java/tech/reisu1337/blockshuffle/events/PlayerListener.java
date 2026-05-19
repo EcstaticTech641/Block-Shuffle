@@ -22,8 +22,10 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.RenderType;
+import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
+import io.papermc.paper.scoreboard.numbers.NumberFormat;
 import tech.reisu1337.blockshuffle.BlockShuffle;
 
 import java.time.Duration;
@@ -50,7 +52,7 @@ public class PlayerListener implements Listener {
 
     // Sound keys — using String + SoundCategory which works on all Paper 26.x builds
     private static final String SND_BLOCK_FOUND  = "block.beacon.activate";
-    private static final String SND_BLOCK_FAILED = "entity.villager.no";
+    private static final String SND_BLOCK_FAILED = "entity.frog.death";
     private static final String SND_POINT_EARNED = "entity.player.attack.sweep";
     private static final String SND_COUNTDOWN    = "block.note_block.hat";
     private static final String SND_GO           = "block.note_block.hat";
@@ -147,6 +149,12 @@ public class PlayerListener implements Listener {
 
     public void setMaterialPath(String materialPath) {
         this.materialPath = materialPath;
+    }
+
+    /** Called by /blockshuffle stop — notifies RGA before tearing down. */
+    public void stopGame() {
+        concludeRGA();
+        resetGame();
     }
 
     // ── Countdown ────────────────────────────────────────────────────────────
@@ -336,13 +344,12 @@ public class PlayerListener implements Listener {
     }
 
     /**
-     * Rebuilds the sidebar using legacy color-code strings as the entry keys.
-     * In Minecraft 1.13+, the sidebar renders the entry string as the visible
-     * text and the score number is suppressed by the client when there are no
-     * digits in the visible portion. We put all display text into the entry
-     * string itself using § codes, and pad blank lines with unique § sequences.
-     * No teams are needed — this is the most compatible approach available
-     * without NumberFormat.
+     * Rebuilds the sidebar using the Paper NumberFormat API to hide the red
+     * score numbers. Each entry's score value is blanked via
+     * score.numberFormat(NumberFormat.blank()), which is the correct method
+     * name on Score in Paper 26.1.2 (not setNumberFormat).
+     * Entry strings are unique §r-padded invisible strings so the scoreboard
+     * treats each line as distinct.
      */
     private void updateSidebar() {
         if (this.scoreboard == null) return;
@@ -363,14 +370,9 @@ public class PlayerListener implements Listener {
                         }))
                 .collect(Collectors.toList());
 
-        // We use a Team per line so the prefix holds the visible text and the
-        // entry (the team's member) is an invisible unique §r string.
-        // The score number is hidden by giving the team a blank suffix and by
-        // ensuring the client never renders a numeral — achieved by putting a
-        // space after each §r so the entry looks blank on-screen.
         int lineIndex = sorted.size() * 2 + 2;
 
-        lineIndex = addTeamLine(obj, "bs_top", lineIndex, "");
+        addLine(obj, "", lineIndex--);
 
         for (UUID uuid : sorted) {
             Player p = Bukkit.getPlayer(uuid);
@@ -381,35 +383,33 @@ public class PlayerListener implements Listener {
             boolean stillSearching = this.userMaterialMap.containsKey(uuid);
 
             String indicator = foundThisRound ? "§a✔ " : (stillSearching ? "§e⧖ " : "§7✘ ");
-            String nameLine  = indicator + "§f" + name;
-            String statsLine = " §7pts:§b" + pts + " §7found:§d" + found;
-
-            lineIndex = addTeamLine(obj, "bs_n" + uuid.toString().substring(0, 8), lineIndex, nameLine);
-            lineIndex = addTeamLine(obj, "bs_s" + uuid.toString().substring(0, 8), lineIndex, statsLine);
+            addLine(obj, indicator + "§f" + name, lineIndex--);
+            addLine(obj, " §7pts:§b" + pts + " §7found:§d" + found, lineIndex--);
         }
 
-        addTeamLine(obj, "bs_bot", lineIndex, "");
+        addLine(obj, " ", lineIndex);
     }
 
     /**
-     * Creates a scoreboard team whose prefix is the visible line text.
-     * The team entry is a unique invisible string (stacked §r codes + a space),
-     * which renders as blank on the client side, hiding the score number.
-     * Returns the next lineIndex to use.
+     * Adds a sidebar line by registering a Team whose prefix holds the visible
+     * text, with a unique invisible entry. Calls score.numberFormat(blank())
+     * using the correct Paper 26.1.2 method name to hide the red number.
      */
-    private int addTeamLine(Objective obj, String teamName, int lineIndex, String text) {
-        // Build a unique invisible entry: N repetitions of §r followed by a space
-        StringBuilder entry = new StringBuilder();
-        for (int i = 0; i < lineIndex; i++) entry.append("§r");
-        entry.append(' ');
-        String entryStr = entry.toString();
+    private void addLine(Objective obj, String text, int score) {
+        // Unique invisible entry: §r repeated `score` times + trailing space
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < score; i++) sb.append("§r");
+        sb.append(' ');
+        String entry = sb.toString();
 
-        Team team = this.scoreboard.registerNewTeam(teamName);
-        team.setPrefix(text);     // legacy String setPrefix — always available
+        Team team = this.scoreboard.registerNewTeam("bs_line_" + score);
+        team.setPrefix(text);
         team.setSuffix("");
-        team.addEntry(entryStr);
-        obj.getScore(entryStr).setScore(lineIndex);
-        return lineIndex - 1;
+        team.addEntry(entry);
+
+        Score s = obj.getScore(entry);
+        s.setScore(score);
+        s.numberFormat(NumberFormat.blank());
     }
 
     // ── Action bar ────────────────────────────────────────────────────────────
