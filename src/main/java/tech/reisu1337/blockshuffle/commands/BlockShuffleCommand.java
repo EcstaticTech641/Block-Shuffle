@@ -47,7 +47,7 @@ public class BlockShuffleCommand implements CommandExecutor {
             if (!this.plugin.isInProgress()) {
                 player.sendMessage(prefix().append(Component.text(this.stopError, NamedTextColor.RED)));
             } else {
-                this.playerListener.resetGame();
+                this.playerListener.stopGame();
                 Bukkit.broadcast(prefix().append(Component.text(this.stopGame, NamedTextColor.GREEN)));
             }
         } else {
