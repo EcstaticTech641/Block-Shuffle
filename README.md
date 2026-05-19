@@ -7,14 +7,6 @@ A Block Shuffle mini-game plugin for Minecraft Paper servers.
 - Paper `26.1.2` (Minecraft 1.21.x)
 - Java 21+
 
-## Building
-
-```bash
-./gradlew build
-```
-
-The compiled jar will be at `build/libs/BlockShuffle-2.0.0.jar`.
-
 ## Installation
 
 Drop the jar into your server's `plugins/` folder and restart.
@@ -36,6 +28,18 @@ Run `/blockshuffle stop` to end a game in progress.
 ## Configuration
 
 Edit `plugins/BlockShuffle/settings.yml` after first run to customise material lists and messages.
+
+## Changelog
+
+### v0.5
+
+### v0.4
+
+### v0.3
+
+### v0.2
+
+### v0.1
 
 ## Changes from original (1.18 → 26.1.2)
 
