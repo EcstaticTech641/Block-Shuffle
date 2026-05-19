@@ -44,6 +44,9 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 
 ### v0.1
 
+- Added sound effects for when a player finds their block and fails to find their block.
+- Added RGA conclusion command integration.
+
 ## Changes from original (1.18 → 26.1.2)
 
 - Bumped API dependency to `io.papermc.paper:paper-api:26.1.2`
