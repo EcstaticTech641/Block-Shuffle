@@ -43,10 +43,19 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 - Added indicator above hotbar when a player's block is found.
 - Added scoreboard that tracks current players, how many points they have, how many blocks they have found, and whether or not they have found their current block.
 
-### v0.1
+### v0.1.2
 
 - Added sound effects for when a player finds their block and fails to find their block.
+- Changed logic of scoring system.
+
+### v0.1.1
+
 - Added RGA conclusion command integration.
+
+### v0.1
+
+- Added the blockshuffle plugin.
+- Changed
 
 ## Changes from original (1.18 → 26.1.2)
 
