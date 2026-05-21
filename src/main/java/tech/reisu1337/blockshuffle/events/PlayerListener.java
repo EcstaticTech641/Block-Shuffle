@@ -53,7 +53,7 @@ public class PlayerListener implements Listener {
     // Sound keys — using String + SoundCategory which works on all Paper 26.x builds
     private static final String SND_BLOCK_FOUND  = "block.beacon.activate";
     private static final String SND_BLOCK_FAILED = "entity.frog.death";
-    private static final String SND_POINT_EARNED = "entity.player.attack.sweep";
+    private static final String SND_POINT_EARNED = "entity.arrow.hit_player";
     private static final String SND_COUNTDOWN    = "block.note_block.hat";
     private static final String SND_GO           = "block.note_block.hat";
 
@@ -309,8 +309,23 @@ public class PlayerListener implements Listener {
             Player winner = Bukkit.getPlayer(leaders.get(0));
             String name = winner != null ? winner.getName() : "Unknown";
             broadcast(buildMessage("🏆 " + name + " wins with " + maxScore + " point(s)! 🏆", NamedTextColor.GOLD));
-            concludeRGA();
-            resetGame();
+
+            // Show winner title to all players
+            Title winnerTitle = Title.title(
+                Component.text("🏆 " + name + " wins! 🏆", NamedTextColor.GOLD, TextDecoration.BOLD),
+                Component.text("with " + maxScore + " point(s)", NamedTextColor.YELLOW),
+                Title.Times.times(Duration.ofMillis(500), Duration.ofSeconds(3), Duration.ofMillis(500))
+            );
+            for (UUID uuid : this.usersInGame) {
+                Player p = Bukkit.getPlayer(uuid);
+                if (p != null) p.showTitle(winnerTitle);
+            }
+
+            // Delay RGA conclude by 3 seconds so players can see the title
+            Bukkit.getScheduler().scheduleSyncDelayedTask(this.plugin, () -> {
+                concludeRGA();
+                resetGame();
+            }, 60L); // 60 ticks = 3 seconds
             return true;
         }
 
