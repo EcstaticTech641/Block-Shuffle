@@ -62,18 +62,6 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 - Recreated blockshuffle plugin.
 - Changed when the timer decreases.
 
-## Changes from original (1.18 → 26.1.2)
-
-- Bumped API dependency to `io.papermc.paper:paper-api:26.1.2`
-- Updated `api-version` in `plugin.yml` to `26.1.2`
-- Replaced deprecated `ChatColor` / `Bukkit.broadcastMessage()` with Paper's Adventure API (`Component`, `NamedTextColor`)
-- Removed dependency on `org.apache.commons.lang.WordUtils` — replaced with plain Java string formatting
-- Inventory title now uses `Component` (required for modern Paper)
-- Fixed boss bar progress clamping to always stay in `[0.0, 1.0]`
-- Fixed several `null` guard checks for offline players
-- Gradle wrapper updated from 7.1.1 → 8.13; Java toolchain set to 21
-- Repository switched from Spigot nexus to `repo.papermc.io`
-
 ---
 ## Original Plugin
 
