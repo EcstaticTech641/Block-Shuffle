@@ -2,11 +2,7 @@
 
 A Block Shuffle mini-game plugin for Minecraft Paper servers. Each round, all players are assigned a block to find and stand on.
 
-## Requirements
-
-- Paper `26.1.2` (Minecraft 1.21.x)
-- Java 21+
-
+---
 ## Usage
 
 Run `/blockshuffle` (requires `blockshuffle.admin` permission, default: op) to open the game menu.
@@ -21,10 +17,12 @@ Run `/blockshuffle` (requires `blockshuffle.admin` permission, default: op) to o
 
 Run `/blockshuffle stop` to end a game in progress.
 
+---
 ## Configuration
 
 Edit `plugins/BlockShuffle/settings.yml` after first run to customise material lists and messages.
 
+---
 ## Changelog
 
 ### v0.2.3
@@ -76,8 +74,11 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 - Gradle wrapper updated from 7.1.1 → 8.13; Java toolchain set to 21
 - Repository switched from Spigot nexus to `repo.papermc.io`
 
+---
 ## Original Plugin
 
 This plugin was initially made by Dream, and updated to Minecraft version 1.18 by OliverB21. Dream's plugin is not public, but OliverB21's plugin can be found below:
 
 https://github.com/OliverB21/BlockShuffle
+
+---
