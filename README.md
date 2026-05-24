@@ -30,7 +30,6 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 - Changed the timer system to increase when no player's find their block.
 - Changed scoreboard to show round number instead of players' blocks found.
 
----
 ### v0.2.3
 
 - Added announcement titles for the winner when a game ends naturally.
