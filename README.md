@@ -25,6 +25,11 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 ---
 ## Changelog
 
+### v0.3.0
+
+- Changed the timer system to increase when no player's find their block.
+
+---
 ### v0.2.3
 
 - Added announcement titles for the winner when a game ends naturally.
@@ -42,7 +47,7 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 - Fixed bug that prevented sound effects for players finding their block and failing to find their block.
 - Patch for formatting issue that showed red placeholder numbers on each row of the scoreboard.
 
-### v0.2
+### v0.2.0
 
 - Added player's currently tasked block above the hotbar.
 - Added indicator above hotbar when a player's block is found.
@@ -57,7 +62,7 @@ Edit `plugins/BlockShuffle/settings.yml` after first run to customise material l
 
 - Added RGA conclusion command integration.
 
-### v0.1
+### v0.1.0
 
 - Recreated blockshuffle plugin.
 - Changed when the timer decreases.
