@@ -1,6 +1,8 @@
-package tech.reisu1337.blockshuffle.events;
+package com.ronlab.blockshuffle.listener;
 
 import com.google.common.collect.Sets;
+import com.ronlab.blockshuffle.BlockShufflePlugin;
+import io.papermc.paper.scoreboard.numbers.NumberFormat;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -21,15 +23,16 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
-import org.bukkit.scoreboard.RenderType;
 import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
-import io.papermc.paper.scoreboard.numbers.NumberFormat;
-import tech.reisu1337.blockshuffle.BlockShuffle;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -41,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
+@NullMarked
 public class PlayerListener implements Listener {
 
     // ── Constants ────────────────────────────────────────────────────────────
@@ -71,56 +75,90 @@ public class PlayerListener implements Listener {
 
     // ── Misc state ───────────────────────────────────────────────────────────
     private final Random random = new Random();
-    private final BlockShuffle plugin;
+    private final BlockShufflePlugin plugin;
     private final YamlConfiguration settings;
 
-    private List<Material> materials;
+    private List<Material> materials = Collections.emptyList();
     private int bossBarTaskId      = -1;
     private int roundEndTaskId     = -1;
     private int actionBarTaskId    = -1;
-    private BossBar bossBar;
-    private Scoreboard scoreboard;
+    private @Nullable BossBar bossBar;
+    private @Nullable Scoreboard scoreboard;
     private long roundStartTime;
-    private String materialPath;
-    /** World the game is being played in — captured at game start for the RGA conclude command. */
-    private World gameWorld;
+    private String materialPath = "materials";
+    /** World the game is being played in. */
+    private @Nullable World gameWorld;
     /** Current round duration in ticks — adjusts based on round outcome. */
     private int currentRoundTicks = ROUND_TICKS_START;
     /** Current round number, shown on the sidebar. */
     private int currentRound = 0;
-    /** True while the 5-second countdown is running (blocks movement detection). */
+    /** True while the 5-second countdown is running. */
     private boolean countdownActive = false;
 
     // ── Constructor ──────────────────────────────────────────────────────────
 
-    public PlayerListener(YamlConfiguration settings, BlockShuffle plugin) {
+    public PlayerListener(YamlConfiguration settings, BlockShufflePlugin plugin) {
         this.settings = settings;
         this.plugin = plugin;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /** Standalone start game — includes all online players. */
     public void startGame() {
-        this.materials = this.settings.getStringList(this.materialPath).stream()
+        World defaultWorld = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
+        List<UUID> onlineUuids = Bukkit.getOnlinePlayers().stream().map(Player::getUniqueId).toList();
+        startGame(onlineUuids, defaultWorld);
+    }
+
+    /** Scoped start game — targeted player list and world payload from RGA. */
+    public void startGame(List<UUID> playerUuids, @Nullable World world) {
+        List<String> rawMaterials = this.settings.getStringList(this.materialPath);
+        if (rawMaterials.isEmpty()) {
+            rawMaterials = this.settings.getStringList("materials");
+        }
+        this.materials = rawMaterials.stream()
                 .map(Material::getMaterial)
+                .filter(m -> m != null && m.isBlock())
                 .collect(Collectors.toList());
 
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            UUID uuid = player.getUniqueId();
-            this.usersInGame.add(uuid);
-            this.scores.put(uuid, 0);
-            if (this.gameWorld == null) {
-                this.gameWorld = player.getWorld();
+        if (this.materials.isEmpty()) {
+            this.materials = List.of(Material.GRASS_BLOCK, Material.STONE, Material.DIRT, Material.OAK_LOG);
+        }
+
+        this.usersInGame.clear();
+        this.scores.clear();
+
+        for (UUID uuid : playerUuids) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                this.usersInGame.add(uuid);
+                this.scores.put(uuid, 0);
+                if (world == null && this.gameWorld == null) {
+                    this.gameWorld = player.getWorld();
+                }
             }
         }
 
+        if (world != null) {
+            this.gameWorld = world;
+        }
+
+        if (this.usersInGame.isEmpty()) {
+            if (BlockShufflePlugin.LOGGER != null) {
+                BlockShufflePlugin.LOGGER.warning("Cannot start BlockShuffle: No valid online players in payload!");
+            }
+            this.plugin.setInProgress(false);
+            return;
+        }
+
+        this.plugin.setInProgress(true);
         this.scoreboard = createSidebar();
         this.bossBar = createBossBar();
         startCountdown();
     }
 
     public void resetGame() {
-        // Remove the custom scoreboard from all players before clearing state
         for (UUID uuid : this.usersInGame) {
             Player p = Bukkit.getPlayer(uuid);
             if (p != null) {
@@ -137,7 +175,9 @@ public class PlayerListener implements Listener {
         this.currentRound = 0;
         this.plugin.setInProgress(false);
 
-        if (this.bossBar != null) this.bossBar.removeAll();
+        if (this.bossBar != null) {
+            this.bossBar.removeAll();
+        }
         cancelTask(roundEndTaskId);
         cancelTask(bossBarTaskId);
         cancelTask(actionBarTaskId);
@@ -152,6 +192,10 @@ public class PlayerListener implements Listener {
         this.materialPath = materialPath;
     }
 
+    public Map<UUID, Integer> getScores() {
+        return new HashMap<>(this.scores);
+    }
+
     /** Called by /blockshuffle stop — notifies RGA before tearing down. */
     public void stopGame() {
         concludeRGA();
@@ -162,7 +206,9 @@ public class PlayerListener implements Listener {
 
     private void startCountdown() {
         this.countdownActive = true;
-        this.bossBar.setVisible(false);
+        if (this.bossBar != null) {
+            this.bossBar.setVisible(false);
+        }
 
         broadcast(Component.text("Game starting in " + COUNTDOWN_SECS + " seconds! Get ready!", NamedTextColor.YELLOW));
 
@@ -208,7 +254,9 @@ public class PlayerListener implements Listener {
 
         this.completedUsers.clear();
         this.userMaterialMap.clear();
-        this.bossBar.setVisible(true);
+        if (this.bossBar != null) {
+            this.bossBar.setVisible(true);
+        }
         this.roundStartTime = System.currentTimeMillis();
         this.currentRound++;
 
@@ -218,7 +266,9 @@ public class PlayerListener implements Listener {
             Material block = getRandomMaterial();
             String friendlyName = formatMaterialName(block);
             this.userMaterialMap.put(uuid, block);
-            BlockShuffle.LOGGER.log(Level.INFO, player.getName() + " got " + friendlyName);
+            if (BlockShufflePlugin.LOGGER != null) {
+                BlockShufflePlugin.LOGGER.log(Level.INFO, player.getName() + " got " + friendlyName);
+            }
             player.sendMessage(
                 prefix()
                     .append(Component.text("Find and stand on ", NamedTextColor.WHITE))
@@ -248,7 +298,6 @@ public class PlayerListener implements Listener {
 
         if (successCount == 0 || failCount == 0) {
             if (successCount == 0) {
-                // Everyone failed — grow the timer, play fail sound for all
                 for (UUID uuid : this.usersInGame) {
                     Player p = Bukkit.getPlayer(uuid);
                     if (p != null) p.playSound(p.getLocation(), SND_BLOCK_FAILED, SoundCategory.MASTER, 1f, 1f);
@@ -266,7 +315,6 @@ public class PlayerListener implements Listener {
                         NamedTextColor.YELLOW));
                 }
             } else {
-                // Everyone succeeded — shrink the timer
                 int newTicks = Math.max(ROUND_TICKS_MIN, this.currentRoundTicks - ROUND_TICKS_SHRINK);
                 if (newTicks < this.currentRoundTicks) {
                     this.currentRoundTicks = newTicks;
@@ -281,7 +329,6 @@ public class PlayerListener implements Listener {
                 }
             }
         } else {
-            // Mixed result — award points to successful players, fail sound to others
             for (UUID uuid : this.completedUsers) {
                 this.scores.merge(uuid, 1, Integer::sum);
                 Player p = Bukkit.getPlayer(uuid);
@@ -323,7 +370,6 @@ public class PlayerListener implements Listener {
             String name = winner != null ? winner.getName() : "Unknown";
             broadcast(buildMessage("🏆 " + name + " wins with " + maxScore + " point(s)! 🏆", NamedTextColor.GOLD));
 
-            // Show winner title to all players
             Title winnerTitle = Title.title(
                 Component.text("🏆 " + name + " wins! 🏆", NamedTextColor.GOLD, TextDecoration.BOLD),
                 Component.text("with " + maxScore + " point(s)", NamedTextColor.YELLOW),
@@ -334,11 +380,10 @@ public class PlayerListener implements Listener {
                 if (p != null) p.showTitle(winnerTitle);
             }
 
-            // Delay RGA conclude by 3 seconds so players can see the title
             Bukkit.getScheduler().scheduleSyncDelayedTask(this.plugin, () -> {
                 concludeRGA();
                 resetGame();
-            }, 60L); // 60 ticks = 3 seconds
+            }, 60L); // 3 seconds
             return true;
         }
 
@@ -353,10 +398,6 @@ public class PlayerListener implements Listener {
 
     // ── Sidebar scoreboard ────────────────────────────────────────────────────
 
-    /**
-     * Creates a fresh scoreboard with a sidebar objective and assigns it to
-     * every player in the game.
-     */
     private Scoreboard createSidebar() {
         Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
         Objective obj = board.registerNewObjective(
@@ -371,14 +412,6 @@ public class PlayerListener implements Listener {
         return board;
     }
 
-    /**
-     * Rebuilds the sidebar using the Paper NumberFormat API to hide the red
-     * score numbers. Each entry's score value is blanked via
-     * score.numberFormat(NumberFormat.blank()), which is the correct method
-     * name on Score in Paper 26.1.2 (not setNumberFormat).
-     * Entry strings are unique §r-padded invisible strings so the scoreboard
-     * treats each line as distinct.
-     */
     private void updateSidebar() {
         if (this.scoreboard == null) return;
         Objective obj = this.scoreboard.getObjective("blockshuffle");
@@ -397,7 +430,6 @@ public class PlayerListener implements Listener {
                         }))
                 .collect(Collectors.toList());
 
-        // Lines: blank + round + blank + (name + pts) per player + blank
         int lineIndex = sorted.size() * 2 + 3;
 
         addLine(obj, "", lineIndex--);
@@ -419,21 +451,16 @@ public class PlayerListener implements Listener {
         addLine(obj, "  ", lineIndex);
     }
 
-    /**
-     * Adds a sidebar line by registering a Team whose prefix holds the visible
-     * text, with a unique invisible entry. Calls score.numberFormat(blank())
-     * using the correct Paper 26.1.2 method name to hide the red number.
-     */
     private void addLine(Objective obj, String text, int score) {
-        // Unique invisible entry: §r repeated `score` times + trailing space
+        if (this.scoreboard == null) return;
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < score; i++) sb.append("§r");
         sb.append(' ');
         String entry = sb.toString();
 
         Team team = this.scoreboard.registerNewTeam("bs_line_" + score);
-        team.setPrefix(text);
-        team.setSuffix("");
+        team.prefix(Component.text(text));
+        team.suffix(Component.empty());
         team.addEntry(entry);
 
         Score s = obj.getScore(entry);
@@ -443,11 +470,6 @@ public class PlayerListener implements Listener {
 
     // ── Action bar ────────────────────────────────────────────────────────────
 
-    /**
-     * Starts a repeating task that sends each player their current target block
-     * as an action bar message (above the hotbar) every second.
-     * Stops automatically when cancelled in onRoundEnd / resetGame.
-     */
     private void startActionBarTask() {
         cancelTask(actionBarTaskId);
         actionBarTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(this.plugin, () -> {
@@ -466,7 +488,7 @@ public class PlayerListener implements Listener {
                 }
                 p.sendActionBar(bar);
             }
-        }, 0L, 20L); // every second
+        }, 0L, 20L);
     }
 
     // ── Boss bar ─────────────────────────────────────────────────────────────
@@ -481,6 +503,7 @@ public class PlayerListener implements Listener {
     }
 
     private void updateBossBar() {
+        if (this.bossBar == null) return;
         long elapsed   = System.currentTimeMillis() - this.roundStartTime;
         long totalMs   = (this.currentRoundTicks / 20L) * 1000L;
         long remaining = totalMs - elapsed;
@@ -497,7 +520,13 @@ public class PlayerListener implements Listener {
 
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
+        if (!this.usersInGame.contains(uuid)) return;
         if (!this.userMaterialMap.containsKey(uuid)) return;
+
+        // Isolation check: strictly match active game world if configured
+        if (this.gameWorld != null && !player.getWorld().equals(this.gameWorld)) {
+            return;
+        }
 
         Material materialBelow = player.getLocation().getBlock()
                 .getRelative(BlockFace.DOWN).getBlockData().getMaterial();
@@ -525,7 +554,6 @@ public class PlayerListener implements Listener {
         this.usersInGame.remove(uuid);
         this.userMaterialMap.remove(uuid);
         this.completedUsers.remove(uuid);
-        this.scores.remove(uuid);
 
         if (this.usersInGame.isEmpty()) {
             concludeRGA();
@@ -567,17 +595,21 @@ public class PlayerListener implements Listener {
     }
 
     private void broadcast(Component message) {
-        Bukkit.broadcast(message);
+        for (UUID uuid : this.usersInGame) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) p.sendMessage(message);
+        }
     }
 
     /**
      * Dispatches the RGA conclude command so Ronlab Game Assistant knows the
-     * minigame has ended. RGA handles stripping _the_nether / _the_end suffixes
-     * itself, so we can pass any dimension world name directly.
+     * minigame has ended.
      */
     private void concludeRGA() {
         if (this.gameWorld == null) return;
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "rga conclude " + this.gameWorld.getName());
+        if (Bukkit.getPluginManager().isPluginEnabled("RonlabGameAssistant")) {
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "rga conclude " + this.gameWorld.getName());
+        }
     }
 
     private void cancelTask(int taskId) {

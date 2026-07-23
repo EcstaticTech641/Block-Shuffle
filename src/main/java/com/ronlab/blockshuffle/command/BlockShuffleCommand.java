@@ -1,5 +1,8 @@
-package tech.reisu1337.blockshuffle.commands;
+package com.ronlab.blockshuffle.command;
 
+import com.ronlab.blockshuffle.BlockShufflePlugin;
+import com.ronlab.blockshuffle.listener.PlayerListener;
+import com.ronlab.blockshuffle.menu.BlockShuffleMenu;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -8,21 +11,23 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import tech.reisu1337.blockshuffle.BlockShuffle;
-import tech.reisu1337.blockshuffle.events.PlayerListener;
-import tech.reisu1337.blockshuffle.menus.BlockShuffleMenu;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
+@NullMarked
 public class BlockShuffleCommand implements CommandExecutor {
     private final String stopGame;
     private final String stopError;
 
     private final PlayerListener playerListener;
     private final BlockShuffleMenu blockShuffleMenu;
-    private final BlockShuffle plugin;
+    private final BlockShufflePlugin plugin;
 
-    public BlockShuffleCommand(PlayerListener playerListener, BlockShuffleMenu blockShuffleMenu, BlockShuffle plugin, YamlConfiguration settings) {
-        this.stopGame = settings.getString("stopgame");
-        this.stopError = settings.getString("stoperror");
+    public BlockShuffleCommand(PlayerListener playerListener, BlockShuffleMenu blockShuffleMenu, BlockShufflePlugin plugin, YamlConfiguration settings) {
+        String sg = settings.getString("stopgame");
+        String se = settings.getString("stoperror");
+        this.stopGame = sg != null ? sg : "Game stopped!";
+        this.stopError = se != null ? se : "No game in progress!";
         this.playerListener = playerListener;
         this.blockShuffleMenu = blockShuffleMenu;
         this.plugin = plugin;

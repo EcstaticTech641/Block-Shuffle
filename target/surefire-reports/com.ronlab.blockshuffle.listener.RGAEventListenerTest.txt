@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.ronlab.blockshuffle.listener.RGAEventListenerTest
+-------------------------------------------------------------------------------
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.617 s -- in com.ronlab.blockshuffle.listener.RGAEventListenerTest

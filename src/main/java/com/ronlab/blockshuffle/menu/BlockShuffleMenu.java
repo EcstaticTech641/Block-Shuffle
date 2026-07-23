@@ -1,5 +1,7 @@
-package tech.reisu1337.blockshuffle.menus;
+package com.ronlab.blockshuffle.menu;
 
+import com.ronlab.blockshuffle.BlockShufflePlugin;
+import com.ronlab.blockshuffle.listener.PlayerListener;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -13,9 +15,9 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import tech.reisu1337.blockshuffle.BlockShuffle;
-import tech.reisu1337.blockshuffle.events.PlayerListener;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class BlockShuffleMenu implements InventoryHolder, Listener {
     private final Inventory inventory = Bukkit.createInventory(this, 9,
             Component.text("BlockShuffle!", NamedTextColor.GOLD));
@@ -23,12 +25,14 @@ public class BlockShuffleMenu implements InventoryHolder, Listener {
 
     private final String startMessage;
     private final String startError;
-    private final BlockShuffle plugin;
+    private final BlockShufflePlugin plugin;
 
-    public BlockShuffleMenu(PlayerListener playerListener, YamlConfiguration settings, BlockShuffle plugin) {
+    public BlockShuffleMenu(PlayerListener playerListener, YamlConfiguration settings, BlockShufflePlugin plugin) {
         this.playerListener = playerListener;
-        this.startMessage = settings.getString("start");
-        this.startError = settings.getString("starterror");
+        String sm = settings.getString("start");
+        String se = settings.getString("starterror");
+        this.startMessage = sm != null ? sm : "Starting BlockShuffle!";
+        this.startError = se != null ? se : "A game is already in progress!";
         this.plugin = plugin;
 
         this.inventory.setItem(2, makeItem(Material.GRASS_BLOCK, "BlockShuffle"));
@@ -41,8 +45,10 @@ public class BlockShuffleMenu implements InventoryHolder, Listener {
     private ItemStack makeItem(Material material, String name) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text(name, NamedTextColor.WHITE));
-        item.setItemMeta(meta);
+        if (meta != null) {
+            meta.displayName(Component.text(name, NamedTextColor.WHITE));
+            item.setItemMeta(meta);
+        }
         return item;
     }
 

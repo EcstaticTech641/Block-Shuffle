@@ -1,0 +1,5 @@
+com\ronlab\blockshuffle\command\BlockShuffleCommand.class
+com\ronlab\blockshuffle\BlockShufflePlugin.class
+com\ronlab\blockshuffle\listener\RGAEventListener.class
+com\ronlab\blockshuffle\listener\PlayerListener.class
+com\ronlab\blockshuffle\menu\BlockShuffleMenu.class
