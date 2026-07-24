@@ -5,6 +5,12 @@ All notable changes to the **Block-Shuffle** project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-07-24
+
+### Changed
+- **Compatibility Verification**: Re-verified and established full runtime compatibility with `RonlabGameAssistant 1.11.0+`.
+- **Metadata Alignment**: Updated project version to `2.1.1` in `pom.xml` and synced documentation references.
+
 ## [2.1.0] - 2026-07-23
 
 ### Added

@@ -35,7 +35,7 @@ cd Block-Shuffle
 mvn clean package
 ```
 
-The output JAR will be located in `target/BlockShuffle-2.1.0.jar`.
+The output JAR will be located in `target/BlockShuffle-2.1.1.jar`.
 
 ---
 
